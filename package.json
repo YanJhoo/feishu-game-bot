@@ -1,0 +1,23 @@
+{
+  "name": "feishu-poker-bot",
+  "version": "1.0.0",
+  "description": "飞书群聊德州扑克 / 谁是卧底机器人（交互卡片版）",
+  "license": "MIT",
+  "author": "YanJhoo",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YanJhoo/feishu-poker-bot.git"
+  },
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "1.73.0",
+    "dotenv": "^16.6.1"
+  }
+}

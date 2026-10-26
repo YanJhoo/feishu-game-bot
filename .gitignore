@@ -1,0 +1,14 @@
+# 依赖与运行产物
+node_modules/
+coverage/
+logs/
+backups/
+*.log
+
+# 本地凭据：只提交 .env.example
+.env
+.env.*
+!.env.example
+
+# 运行时数据（玩家统计、牌桌状态），包含用户 open_id，不要提交
+data/
