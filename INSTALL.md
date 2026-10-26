@@ -37,8 +37,8 @@
 需要 [Node.js](https://nodejs.org/) 18 或更高版本（装 LTS 版就行）和 [Git](https://git-scm.com/)。
 
 ```bash
-git clone https://github.com/YanJhoo/feishu-poker-bot.git
-cd feishu-poker-bot
+git clone https://github.com/YanJhoo/feishu-game-bot.git
+cd feishu-game-bot
 npm install
 ```
 
@@ -69,7 +69,7 @@ npm test
 npm start
 ```
 
-看到 `🃏 飞书德州扑克机器人启动成功` 和长连接 `ws client ready` 之类的日志，就说明连上飞书了。这个窗口要一直开着，关掉机器人就下线了。
+看到 `🃏 飞书群游戏机器人启动成功` 和长连接 `ws client ready` 之类的日志，就说明连上飞书了。这个窗口要一直开着，关掉机器人就下线了。
 
 ---
 
@@ -90,11 +90,11 @@ npm start
 
 ```bash
 npm install -g pm2
-pm2 start index.js --name feishu-poker-bot
+pm2 start index.js --name feishu-game-bot
 pm2 save
 ```
 
-常用命令：`pm2 logs feishu-poker-bot` 看日志，`pm2 restart feishu-poker-bot` 重启，`pm2 stop feishu-poker-bot` 停止。
+常用命令：`pm2 logs feishu-game-bot` 看日志，`pm2 restart feishu-game-bot` 重启，`pm2 stop feishu-game-bot` 停止。
 
 开机自启：Linux / macOS 运行 `pm2 startup` 按提示操作；Windows 可以装 `pm2-windows-startup`，或者用「任务计划程序」在登录时运行 `npm start`。
 

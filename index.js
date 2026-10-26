@@ -328,7 +328,7 @@ function createBot(environment = process.env) {
 if (require.main === module) {
   const bot = createBot();
   bot.start();
-  console.log('🃏 飞书德州扑克机器人启动成功（文字命令版）');
+  console.log('🃏 飞书群游戏机器人启动成功');
   const shutdown = () => { bot.stop(); process.exit(0); };
   process.once('SIGINT', shutdown);
   process.once('SIGTERM', shutdown);

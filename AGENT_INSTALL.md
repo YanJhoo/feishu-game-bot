@@ -7,12 +7,12 @@
 ```text
 请帮我在这台电脑上安装并运行一个开源的飞书群聊游戏机器人（德州扑克 / 谁是卧底）。
 
-仓库：https://github.com/YanJhoo/feishu-poker-bot
+仓库：https://github.com/YanJhoo/feishu-game-bot
 详细教程在仓库的 INSTALL.md，请先读它，再按它的步骤做。
 
 请按顺序完成：
 1. 检查 Git 和 Node.js（需要 >= 18）。没装就帮我装 Node.js LTS 和 Git，装之前先告诉我要装什么。
-2. 把仓库克隆到一个好找的目录（比如用户目录下的 feishu-poker-bot），进入目录执行 npm install。
+2. 把仓库克隆到一个好找的目录（比如用户目录下的 feishu-game-bot），进入目录执行 npm install。
 3. 执行 npm test，确认测试全部通过。没通过就停下来告诉我原因，不要改测试。
 4. 把 .env.example 复制成 .env。
 5. 按 INSTALL.md「第一步」，一步一步告诉我在飞书开放平台要做什么：建应用、加机器人能力、开权限、用长连接订阅 im.message.receive_v1、im.message.recalled_v1 和回调 card.action.trigger、发布版本。每做完一步等我确认再继续。

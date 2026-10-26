@@ -1,10 +1,10 @@
 <div align="center">
 
-# 🃏 飞书德州扑克机器人
+# 🃏 飞书群游戏机器人
 
 **拉进飞书群就能玩的德州扑克和谁是卧底。点按钮下注，底牌只有你自己看得到，不需要服务器。**
 
-[![Test](https://github.com/YanJhoo/feishu-poker-bot/actions/workflows/test.yml/badge.svg)](https://github.com/YanJhoo/feishu-poker-bot/actions/workflows/test.yml)
+[![Test](https://github.com/YanJhoo/feishu-game-bot/actions/workflows/test.yml/badge.svg)](https://github.com/YanJhoo/feishu-game-bot/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js >= 18](https://img.shields.io/badge/Node.js-%3E%3D18-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Feishu / Lark](https://img.shields.io/badge/飞书%20%2F%20Lark-机器人-3370FF)](https://open.feishu.cn/)
@@ -65,8 +65,8 @@
 2. 下载代码并安装依赖：
 
    ```bash
-   git clone https://github.com/YanJhoo/feishu-poker-bot.git
-   cd feishu-poker-bot
+   git clone https://github.com/YanJhoo/feishu-game-bot.git
+   cd feishu-game-bot
    npm install
    ```
 
@@ -110,7 +110,7 @@
    正常会显示：
 
    ```text
-   🃏 飞书德州扑克机器人启动成功（文字命令版）
+   🃏 飞书群游戏机器人启动成功
    ```
 
 ## 飞书开放平台设置
@@ -203,7 +203,7 @@ test/core.test.js           核心规则测试
 
 <div align="center">
 
-觉得好玩的话，欢迎点个 ⭐ Star，有想法也欢迎提 [Issue](https://github.com/YanJhoo/feishu-poker-bot/issues)。
+觉得好玩的话，欢迎点个 ⭐ Star，有想法也欢迎提 [Issue](https://github.com/YanJhoo/feishu-game-bot/issues)。
 
 </div>
 
@@ -220,8 +220,8 @@ test/core.test.js           核心规则测试
 **Quick start:** Node.js 18+, then
 
 ```bash
-git clone https://github.com/YanJhoo/feishu-poker-bot.git
-cd feishu-poker-bot
+git clone https://github.com/YanJhoo/feishu-game-bot.git
+cd feishu-game-bot
 npm install
 cp .env.example .env   # fill in FEISHU_APP_ID and FEISHU_APP_SECRET
 npm start

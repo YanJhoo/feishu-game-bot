@@ -1,12 +1,12 @@
 {
-  "name": "feishu-poker-bot",
+  "name": "feishu-game-bot",
   "version": "1.0.0",
   "description": "飞书群聊德州扑克 / 谁是卧底机器人（交互卡片版）",
   "license": "MIT",
   "author": "YanJhoo",
   "repository": {
     "type": "git",
-    "url": "https://github.com/YanJhoo/feishu-poker-bot.git"
+    "url": "https://github.com/YanJhoo/feishu-game-bot.git"
   },
   "main": "index.js",
   "scripts": {
