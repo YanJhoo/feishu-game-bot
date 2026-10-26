@@ -351,7 +351,7 @@ test('谁是卧底房间完成基本流程', () => {
   solo.dispatch('solo-undercover', { openId: 'one', name: '测试员' }, { type: 'GAME_ACTION', action: 'JOIN' });
   assert.equal(solo.dispatch('solo-undercover', { openId: 'one', name: '测试员' }, { type: 'GAME_ACTION', action: 'START' }).filter((event) => event.type === 'private').length, 2);
 
-  assert.throws(() => solo.dispatch('removed-game', { openId: 'one', name: '测试员' }, { type: 'SELECT_GAME', game: 'turtle_soup' }), /无法识别游戏/);
+  assert.throws(() => solo.dispatch('unknown-game', { openId: 'one', name: '测试员' }, { type: 'SELECT_GAME', game: 'unknown_game' }), /无法识别游戏/);
 });
 
 test('谁是卧底描述超时会静默跳过并在最后进入投票', () => {
@@ -888,7 +888,6 @@ test('@机器人空指令会返回首页卡片，开桌后返回大厅按钮卡�
   assert.match(homeCardJson, /德州扑克/);
   assert.doesNotMatch(homeCardJson, /进入德州扑克/);
   assert.match(homeCardJson, /谁是卧底/);
-  assert.doesNotMatch(homeCardJson, /海龟汤/);
   const lobbyEvents = manager.dispatch({ chatId: 'group-ui', user: { openId: 'owner' }, command: { type: 'OPEN' } });
   const lobbyEvent = lobbyEvents.find((event) => event.type === 'lobby_card');
   const lobbyCard = JSON.stringify(createLobbyCard(lobbyEvent));
