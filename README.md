@@ -1,10 +1,33 @@
-# 飞书德州扑克机器人（交互卡片版）
+<div align="center">
 
-在飞书群里玩德州扑克和谁是卧底的机器人。牌桌、操作按钮和结算都用交互卡片展示，底牌只有本人能看到。
+# 🃏 飞书德州扑克机器人
 
-- Node.js 18+，基于官方 SDK `@larksuiteoapi/node-sdk@1.73.0`
-- 使用飞书**长连接**收事件，不需要公网服务器或域名，一台能联网的电脑就能跑
-- 牌桌状态和战绩保存在本地 `data/` 文件夹，重启后自动恢复
+**拉进飞书群就能玩的德州扑克和谁是卧底。点按钮下注，底牌只有你自己看得到，不需要服务器。**
+
+[![Test](https://github.com/YanJhoo/feishu-poker-bot/actions/workflows/test.yml/badge.svg)](https://github.com/YanJhoo/feishu-poker-bot/actions/workflows/test.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node.js >= 18](https://img.shields.io/badge/Node.js-%3E%3D18-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Feishu / Lark](https://img.shields.io/badge/飞书%20%2F%20Lark-机器人-3370FF)](https://open.feishu.cn/)
+
+[安装教程](INSTALL.md) · [让 AI 帮你装](AGENT_INSTALL.md) · [命令一览](#命令) · [English](#english)
+
+</div>
+
+<!--
+  演示动图：录一段群里「开桌 → 牌桌卡片 → 查看我的底牌 → 结算」的屏幕录像，
+  转成 GIF（建议宽 800px 以内、5MB 以内），保存为 docs/demo.gif，
+  然后把下面这行图片代码移到注释外面（删掉这整段注释，只保留图片那一行）。
+<p align="center"><img src="docs/demo.gif" alt="群聊演示" width="720"></p>
+-->
+
+## ✨ 亮点
+
+- 🎴 **全程卡片操作**：牌桌、公共牌、底池、筹码实时更新，过牌 / 跟注 / 加注 / 弃牌一键点按钮，还有半池、满池快捷加注
+- 🔒 **底牌真私密**：点「查看我的底牌」后只有你自己的客户端能看到，旁观者和旧卡片都看不了
+- 🕵️ **不止德州**：内置「谁是卧底」，机器人匿名代发描述、匿名投票，最后才揭晓身份
+- 🏆 **战绩和每日称号**：自动记录胜负和最大单局盈利，每天早上 9 点在群里发布昨日称号榜
+- 🖥️ **零服务器**：用飞书长连接收事件，不需要公网 IP 和域名，一台能联网的电脑就能跑
+- ✅ **规则严谨**：完整边池、7 选 5 比牌、短码全下不重开加注，41 个测试覆盖核心规则
 
 ## 安装
 
@@ -14,7 +37,7 @@
 | 🤖 [**交给 AI 助手 AGENT_INSTALL.md**](AGENT_INSTALL.md) | 复制一段提示词给 Claude Code / Codex / Cursor，让它帮你装 |
 | ⚡ 下面的「快速开始」 | 熟悉飞书开放平台和 Node.js 的人 |
 
-## 已实现
+## 完整功能
 
 - 以 `chat_id` 隔离牌桌；不同群可同时游戏。
 - 最多 9 人、昵称与固定座位、初始筹码；每局安全随机庄家，小盲/大盲按顺时针确定。
@@ -175,3 +198,35 @@ test/core.test.js           核心规则测试
 ## 开源协议
 
 [MIT](LICENSE)。可以自由使用、修改和分发，请保留版权声明。
+
+---
+
+<div align="center">
+
+觉得好玩的话，欢迎点个 ⭐ Star，有想法也欢迎提 [Issue](https://github.com/YanJhoo/feishu-poker-bot/issues)。
+
+</div>
+
+## English
+
+**A Feishu / Lark group chat bot for Texas Hold'em and "Who's the Spy" (谁是卧底).**
+
+- Play entirely through interactive cards: live table, community cards, pot and stacks, with one-tap check / call / raise / fold and quick pot-size raises.
+- Hole cards are truly private: each player sees their own cards on their own client only.
+- Full No-Limit Hold'em rules: side pots, best-5-of-7 evaluation, split pots, short all-ins that don't reopen betting. Covered by 41 tests.
+- Persistent stats and a daily leaderboard posted to a group every morning (Beijing time).
+- Uses Feishu's **long-connection (WebSocket) mode**, so no public server, IP or domain is needed.
+
+**Quick start:** Node.js 18+, then
+
+```bash
+git clone https://github.com/YanJhoo/feishu-poker-bot.git
+cd feishu-poker-bot
+npm install
+cp .env.example .env   # fill in FEISHU_APP_ID and FEISHU_APP_SECRET
+npm start
+```
+
+In the Feishu developer console, enable the bot capability, choose long-connection mode, subscribe to `im.message.receive_v1` and `im.message.recalled_v1`, add the `card.action.trigger` callback, then publish a version. See [INSTALL.md](INSTALL.md) for the full step-by-step guide (in Chinese). The bot's commands and UI are in Chinese.
+
+License: [MIT](LICENSE).
