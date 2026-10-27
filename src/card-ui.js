@@ -128,7 +128,7 @@ function createTableCard(event) {
         layout: 'flow',
         actions: [button('开始下一局', 'NEXT_HAND', event, 'primary'), button('离开牌桌', 'LEAVE', event)],
       },
-      { tag: 'note', elements: [plain('不会自动开局；任意已入座玩家点击后立即开始下一局。筹码低于 1000 的玩家请先按补充提醒操作。')] },
+      { tag: 'note', elements: [plain(`不会自动开局；任意已入座玩家点击后立即开始下一局。筹码低于 ${event.bailoutCap ?? 1000} 的玩家请先按补充提醒操作。`)] },
     );
   }
 
@@ -361,7 +361,7 @@ function createExclusiveBailoutCard(data) {
     elements: [
       { tag: 'div', text: { tag: 'lark_md', content: `你当前有 **${data.player.stack}** 筹码，筹码王为 **${data.highestStack}**。\n选择档位并确认后立即补充；确认框会显示将公开发送的完整语录。` } },
       { tag: 'action', layout: 'flow', actions: choiceButtons },
-      { tag: 'note', elements: [plain('每局最多补充一次；最终不超过 1000，并为筹码王保留至少 200 筹码优势。')] },
+      { tag: 'note', elements: [plain(`每局最多补充一次；最终不超过 ${data.cap ?? 1000}，并为筹码王保留至少 ${data.leaderReserve ?? 200} 筹码优势。`)] },
     ],
   };
 }

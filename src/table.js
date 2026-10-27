@@ -3,7 +3,7 @@
 const { MAX_PLAYERS, PHASES } = require('./constants');
 const { createDeck, shuffle, secureRandomIndex, formatCards } = require('./cards');
 const { bestHand, compareScores } = require('./evaluator');
-const { BAILOUT_TIERS } = require('./bailout');
+const { bailoutTiers, leaderReserve } = require('./bailout');
 
 const PHASE_LABELS = Object.freeze({
   [PHASES.PREFLOP]: '翻牌前 Preflop',
@@ -355,11 +355,15 @@ class PokerTable {
     return this.setSittingOut(openId, !player.sittingOut);
   }
 
+  // Players below the starting stack may top up, never beyond it.
+  bailoutCap() { return this.config.startingStack; }
+
   canReceiveBailout(openId) {
     if (this.isActive()) throw new Error('牌局进行中，结算后才能领取救济筹码');
     const player = this.playerById(openId);
     if (!player) throw new Error('请先加入牌桌');
-    if (player.stack >= 1000) throw new Error(`你还有 ${player.stack} 筹码，只有筹码低于 1000 才能使用补充口令`);
+    const cap = this.bailoutCap();
+    if (player.stack >= cap) throw new Error(`你还有 ${player.stack} 筹码，只有筹码低于 ${cap} 才能使用补充口令`);
     if (player.lastBailoutHand === this.handNumber) throw new Error('你在本局结算后已经补充过一次筹码，请参加下一局后再使用');
     return player;
   }
@@ -369,7 +373,9 @@ class PokerTable {
     const highestStack = currentHighest > 0 ? currentHighest : this.config.startingStack;
     return {
       highestStack,
-      options: BAILOUT_TIERS.map((tier) => ({ ...tier })),
+      cap: this.bailoutCap(),
+      leaderReserve: leaderReserve(this.config.startingStack),
+      options: bailoutTiers(this.config.startingStack),
     };
   }
 
@@ -380,10 +386,10 @@ class PokerTable {
     if (!selected) throw new Error('无法识别补充筹码档位');
     const grant = Math.min(
       selected.amount,
-      Math.max(0, 1000 - player.stack),
-      Math.max(0, bailout.highestStack - player.stack - 200),
+      Math.max(0, bailout.cap - player.stack),
+      Math.max(0, bailout.highestStack - player.stack - bailout.leaderReserve),
     );
-    if (grant <= 0) throw new Error('你当前已接近筹码王；必须为筹码王保留至少 200 筹码的领先优势');
+    if (grant <= 0) throw new Error(`你当前已接近筹码王；必须为筹码王保留至少 ${bailout.leaderReserve} 筹码的领先优势`);
     player.stack += grant;
     player.lastBailoutHand = this.handNumber;
     this.turnVersion += 1;
@@ -403,6 +409,8 @@ class PokerTable {
       turnVersion: this.turnVersion,
       player: { openId: player.openId, name: player.name, stack: player.stack },
       highestStack: bailout.highestStack,
+      cap: bailout.cap,
+      leaderReserve: bailout.leaderReserve,
       options: bailout.options,
     };
   }
@@ -426,7 +434,7 @@ class PokerTable {
   emitBailoutCard() {
     if (this.isActive()) throw new Error('牌局进行中，结算后才能补充筹码');
     const players = this.seatedPlayers()
-      .filter((player) => player.stack < 1000 && player.lastBailoutHand !== this.handNumber)
+      .filter((player) => player.stack < this.bailoutCap() && player.lastBailoutHand !== this.handNumber)
       .map((player) => ({ openId: player.openId, name: player.name, stack: player.stack }));
     if (!players.length) throw new Error('当前没有可以补充筹码的玩家');
     const bailout = this.bailoutOptions();
@@ -476,9 +484,12 @@ class PokerTable {
       player.handStats = { allIns: 0, folds: 0 };
     }
 
-    // Every hand independently draws a dealer with secure randomness.
-    // Blinds remain clockwise from that dealer so betting order stays valid.
-    this.buttonSeat = participants[secureRandomIndex(participants.length)].seat;
+    // The first dealer is drawn at random; after that the button moves
+    // clockwise to the next player in the hand, so everyone pays the blinds in turn.
+    const previousButton = this.buttonSeat;
+    this.buttonSeat = Number.isSafeInteger(previousButton)
+      ? this.nextSeat(previousButton, (player) => participants.includes(player))
+      : participants[secureRandomIndex(participants.length)].seat;
     const handPlayers = this.inHandPlayers();
     const solo = handPlayers.length === 1;
     const headsUp = handPlayers.length === 2;
@@ -628,13 +639,16 @@ class PokerTable {
   }
 
   foldPlayer(player, { forced, reason }) {
+    // A player can be folded out of turn (for example when leaving the table).
+    // In that case the player currently acting must keep the turn.
+    const wasActing = this.activeSeat === player.seat;
     player.folded = true;
     if (!forced) player.handStats.folds += 1;
     this.recordAction(player, `${reason}${forced ? '（自动）' : ''}`);
     this.pending.delete(player.openId);
     this.actedSinceFullRaise.add(player.openId);
     const notice = this.emitActionGroup(`${forced ? '⏱️' : '🗑️'} ${mentionPlayer(player)}：${reason}${forced ? '（自动）' : ''}`);
-    this.progress(player.seat);
+    this.progress(player.seat, { keepCurrentActor: !wasActing });
     this.appendNextActor(notice);
   }
 
@@ -656,7 +670,8 @@ class PokerTable {
     this.progress(previousSeat);
   }
 
-  progress(previousSeat) {
+  progress(previousSeat, { keepCurrentActor = false } = {}) {
+    const currentActor = this.activeSeat === null ? null : this.playerAtSeat(this.activeSeat);
     this.pending = new Set([...this.pending].filter((openId) => {
       const player = this.playerById(openId);
       return player && player.inHand && !player.folded && !player.allIn && player.stack > 0;
@@ -671,6 +686,10 @@ class PokerTable {
     if (remaining.length > 1 && actionable.length <= 1 && (!actionable.length || this.toCall(actionable[0]) === 0)) {
       this.pending.clear();
       this.runoutToShowdown();
+      return;
+    }
+    if (keepCurrentActor && currentActor && this.pending.has(currentActor.openId)) {
+      // Nothing changed for the acting player: their card and timer stay valid.
       return;
     }
     if (this.pending.size > 0) {
@@ -854,12 +873,13 @@ class PokerTable {
         net: payout - player.contributed,
         allIns: Number(player.handStats?.allIns) || 0,
         folds: Number(player.handStats?.folds) || 0,
-        canBailout: player.stack < 1000 && player.lastBailoutHand !== this.handNumber,
+        canBailout: player.stack < this.bailoutCap() && player.lastBailoutHand !== this.handNumber,
       };
     });
     this.events.push({
       type: 'result_card', chatId: this.chatId, handNumber: this.handNumber, board: this.board.slice(), lines, players,
       potSummaries: this.lastResult?.potSummaries || [],
+      bailoutCap: this.bailoutCap(),
       turnVersion: this.turnVersion,
       fallbackText: `${lines.join('\n')}\n\n💵 结算后筹码\n${players.map((player) => `${player.name}：${player.stack}`).join('\n')}`,
     });

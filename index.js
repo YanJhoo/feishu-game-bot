@@ -3,7 +3,7 @@
 const lark = require('@larksuiteoapi/node-sdk');
 require('dotenv').config();
 
-const { parseCommand, normalizeText } = require('./src/commands');
+const { normalizeText } = require('./src/commands');
 const { TableManager } = require('./src/table-manager');
 const { createFeishuTransport } = require('./src/feishu-transport');
 const { RecentMessageDeduper, ChatQueue } = require('./src/deduper');
@@ -76,6 +76,7 @@ function createBot(environment = process.env) {
   let botIdentityPromise = null;
   const deduper = new RecentMessageDeduper();
   const chatQueue = new ChatQueue();
+  manager.setTaskRunner((chatId, task) => chatQueue.enqueue(chatId, task));
   manager.setEventSink((events) => transport.deliver(events));
   const bailoutDelayMs = Math.max(1000, Number(environment.BAILOUT_DELAY_MS) || 10000);
   const bailoutScheduler = new BailoutScheduler({
@@ -182,16 +183,15 @@ function createBot(environment = process.env) {
       const identity = await ensureBotIdentity();
       if (!messageMentionsBot(message, identity)) return;
     }
-    console.log(`收到群消息 [${chatId}]：${text}`);
     await chatQueue.enqueue(chatId, async () => {
       try {
         const memberName = await resolveMemberName(chatId, openId);
         // Parse inside the per-chat queue. A card click may arm the next
         // Undercover message immediately before this event arrives.
-        const command = text
-          ? (manager.games.parseText(chatId, text, openId) || parseCommand(text))
-          : { type: 'INTERFACE' };
+        const command = text ? manager.parseText(chatId, text, openId) : { type: 'INTERFACE' };
+        // Ordinary chat is ignored and never written to the log.
         if (!command) return;
+        console.log(`收到命令 [${chatId}]：${command.type}${command.action ? `/${command.action}` : ''}`);
         if (command.type === 'BAILOUT') {
           const table = manager.get(chatId);
           if (!table) throw new Error('当前没有牌桌，请先发送“开桌”');

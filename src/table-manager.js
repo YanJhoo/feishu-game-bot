@@ -2,21 +2,28 @@
 
 const { PokerTable } = require('./table');
 const { PHASES } = require('./constants');
-const { helpText } = require('./commands');
+const { helpText, parseCommand } = require('./commands');
 const path = require('node:path');
 const { StatsStore } = require('./stats-store');
 const { TableStateStore } = require('./table-state-store');
 const { GameManager } = require('./game-manager');
 
+const POKER_FOCUS_COMMANDS = new Set([
+  'OPEN', 'JOIN', 'RENAME', 'SIT_OUT', 'TOGGLE_SIT_OUT', 'LEAVE', 'VIEW', 'BAILOUT_MENU', 'START', 'NEXT_HAND',
+  'BAILOUT', 'DISBAND', 'CHECK', 'CALL', 'FOLD', 'ALL_IN', 'RAISE_TO',
+]);
+
 class TableManager {
   constructor(config = {}) {
     this.config = config;
     this.tables = new Map();
+    this.focus = new Map();
     this.bankrolls = {};
     this.sequence = 0;
     this.timers = new Map();
     this.gameTimers = new Map();
     this.eventSink = null;
+    this.taskRunner = null;
     this.stats = config.statsStore || new StatsStore(config.statsFile || path.join(__dirname, '..', 'data', 'stats.json'));
     this.games = config.gameManager || new GameManager({ allowSoloGame: config.allowSoloGame, scoreStore: this.stats });
     this.undercoverSpeakTimeoutMs = Math.max(0, Number(config.undercoverSpeakTimeoutMs ?? 60000) || 0);
@@ -27,14 +34,44 @@ class TableManager {
   setEventSink(sink) {
     this.eventSink = sink;
     for (const table of this.tables.values()) this.syncTimer(table);
+    for (const chatId of this.games.chatIds?.() || []) this.syncGameTimer(chatId);
   }
   get(chatId) { return this.tables.get(chatId); }
+
+  // Timers must wait their turn behind messages and card clicks of the same
+  // group, otherwise their messages can interleave with a reply being sent.
+  setTaskRunner(runner) { this.taskRunner = runner; }
+  runInChat(chatId, task) {
+    return this.taskRunner ? this.taskRunner(chatId, task) : task();
+  }
+
+  hasLiveTable(chatId) {
+    const table = this.get(chatId);
+    return Boolean(table && table.phase !== PHASES.DISBANDED);
+  }
+
+  // Which game plain words such as “加入 / 开始 / 解散” belong to in this group.
+  // It follows the game the group touched most recently.
+  focusOf(chatId) {
+    const hasTable = this.hasLiveTable(chatId);
+    const hasRoom = Boolean(this.games.get(chatId));
+    const focus = this.focus.get(chatId);
+    if (focus === 'undercover' && hasRoom) return 'undercover';
+    if (focus === 'poker' && hasTable) return 'poker';
+    return hasRoom && !hasTable ? 'undercover' : 'poker';
+  }
+
+  parseText(chatId, text, openId = null) {
+    const allowGeneric = this.focusOf(chatId) === 'undercover';
+    return this.games.parseText(chatId, text, openId, { allowGeneric }) || parseCommand(text);
+  }
 
   restoreTables() {
     if (!this.tableStateStore) return;
     const state = this.tableStateStore.load();
     this.sequence = state.sequence;
     this.bankrolls = state.bankrolls || {};
+    if (typeof this.games.restore === 'function') this.games.restore(state.games);
     for (const saved of state.tables) {
       try {
         const table = PokerTable.fromState(saved, this.config);
@@ -47,6 +84,8 @@ class TableManager {
       }
     }
     if (this.tables.size) console.log(`已恢复 ${this.tables.size} 张牌桌。`);
+    const roomCount = this.games.chatIds?.().length || 0;
+    if (roomCount) console.log(`已恢复 ${roomCount} 个谁是卧底房间。`);
   }
 
   persist() {
@@ -56,6 +95,7 @@ class TableManager {
       this.sequence,
       [...this.tables.values()].filter((table) => table.phase !== PHASES.DISBANDED).map((table) => table.toState()),
       this.bankrolls,
+      typeof this.games.toState === 'function' ? this.games.toState() : null,
     );
   }
 
@@ -119,31 +159,26 @@ class TableManager {
 
   dispatch({ chatId, user, command }) {
     let table = this.get(chatId);
-    if (command.type === 'INTERFACE' && table && table.phase !== PHASES.DISBANDED) {
-      return [{ type: 'home_card', chatId, title: '群游戏大厅', pokerAction: 'VIEW', turnVersion: table.turnVersion, fallbackText: '🎮 群游戏大厅\n请选择要玩的游戏。' }];
-    }
+    if (command.type === 'SELECT_GAME' || command.type === 'GAME_ACTION') this.focus.set(chatId, 'undercover');
+    else if (POKER_FOCUS_COMMANDS.has(command.type)) this.focus.set(chatId, 'poker');
+
     if (command.type === 'INTERFACE') {
-      if (!table || table.phase === PHASES.DISBANDED) {
-        return [{ type: 'home_card', chatId, title: '顶尖运营', turnVersion: 0, fallbackText: '🏆 顶尖运营\n请选择要学的运营技能。' }];
+      if (this.hasLiveTable(chatId)) {
+        return [{ type: 'home_card', chatId, title: '群游戏大厅', pokerAction: 'VIEW', turnVersion: table.turnVersion, fallbackText: '🎮 群游戏大厅\n请选择要玩的游戏。' }];
       }
-      table.emitCurrentInterface();
-      return this.collect(table);
+      return [{ type: 'home_card', chatId, title: '顶尖运营', turnVersion: 0, fallbackText: '🏆 顶尖运营\n请选择要学的运营技能。' }];
     }
     if (command.type === 'HELP') return [{ type: 'group', chatId, text: helpText() }];
-    if (command.type === 'SELECT_GAME') {
+    if (command.type === 'SELECT_GAME' || command.type === 'GAME_ACTION') {
       const events = this.games.dispatch(chatId, user, command);
       this.syncGameTimer(chatId);
-      return events;
-    }
-    if (command.type === 'GAME_ACTION') {
-      const events = this.games.dispatch(chatId, user, command);
-      this.syncGameTimer(chatId);
+      this.persist();
       return events;
     }
     if (command.type === 'RULES') return [{ type: 'rules_card', chatId, fallbackText: '发送“规则”可查看德州扑克新手教程。' }];
     if (command.type === 'VERIFY_CARDS') return [{ type: 'group', chatId, text: '牌没有问题，给我擦皮鞋' }];
     if (command.type === 'STATS') {
-      const stats = this.stats.snapshotAll();
+      const stats = typeof this.stats.snapshotChat === 'function' ? this.stats.snapshotChat(chatId) : this.stats.snapshotAll();
       return [{
         type: 'stats_card', chatId, stats, turnVersion: table?.turnVersion || 0,
         fallbackText: stats.length
@@ -263,13 +298,17 @@ class TableManager {
     if (!room || room.game !== 'undercover' || room.phase !== 'speaking' || !this.undercoverSpeakTimeoutMs) return;
     const expectedOpenId = this.games.currentSpeaker(room)?.openId;
     if (!expectedOpenId) return;
-    const timer = setTimeout(async () => {
-      this.gameTimers.delete(chatId);
-      const events = this.games.timeoutSpeaker(chatId, expectedOpenId);
-      this.syncGameTimer(chatId);
-      if (this.eventSink && events.length) {
-        try { await this.eventSink(events); } catch (error) { console.error('发送卧底超时推进卡失败：', error); }
-      }
+    const timer = setTimeout(() => {
+      if (this.gameTimers.get(chatId) === timer) this.gameTimers.delete(chatId);
+      this.runInChat(chatId, async () => {
+        const events = this.games.timeoutSpeaker(chatId, expectedOpenId);
+        if (!events.length) return;
+        this.syncGameTimer(chatId);
+        this.persist();
+        if (this.eventSink) {
+          try { await this.eventSink(events); } catch (error) { console.error('发送卧底超时推进卡失败：', error); }
+        }
+      });
     }, this.undercoverSpeakTimeoutMs);
     this.gameTimers.set(chatId, timer);
   }
@@ -282,22 +321,23 @@ class TableManager {
     const timers = {};
     const warningMs = Math.min(table.config.turnWarningMs, timeout);
     if (warningMs > 0 && timeout > warningMs) {
-      timers.warning = setTimeout(async () => {
+      timers.warning = setTimeout(() => this.runInChat(table.chatId, async () => {
         if (!table.warnTurn(version, Math.ceil(warningMs / 1000))) return;
         const events = table.drainEvents();
         if (this.eventSink && events.length) {
           try { await this.eventSink(events); } catch (error) { console.error('发送行动提醒失败：', error); }
         }
-      }, timeout - warningMs);
+      }), timeout - warningMs);
     }
-    timers.timeout = setTimeout(async () => {
-      this.timers.delete(table.chatId);
+    timers.timeout = setTimeout(() => this.runInChat(table.chatId, async () => {
+      // A newer turn may have started while this task waited in the queue;
+      // table.timeout() then refuses the stale version.
       if (!table.timeout(version)) return;
       const events = this.collect(table);
       if (this.eventSink && events.length) {
         try { await this.eventSink(events); } catch (error) { console.error('发送超时处理消息失败：', error); }
       }
-    }, timeout);
+    }), timeout);
     this.timers.set(table.chatId, timers);
   }
 

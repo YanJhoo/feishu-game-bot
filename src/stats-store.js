@@ -1,12 +1,24 @@
 'use strict';
 
-const fs = require('node:fs');
-const path = require('node:path');
+const { writeJsonAtomic, readJsonSafe } = require('./json-file');
+
+function normalizePlayerStats(record, openId, name) {
+  const existing = record || { openId, name: name || '玩家', hands: 0, wins: 0, totalNet: 0, biggestWin: 0 };
+  if (name) existing.name = name;
+  if (!Number.isSafeInteger(existing.bailoutCount)) existing.bailoutCount = 0;
+  if (!Number.isSafeInteger(existing.bailoutTotal)) existing.bailoutTotal = 0;
+  if (!existing.bailoutPhrases || typeof existing.bailoutPhrases !== 'object') existing.bailoutPhrases = {};
+  return existing;
+}
+
+function sortStats(list) {
+  return list.sort((a, b) => b.wins - a.wins || b.totalNet - a.totalNet || a.name.localeCompare(b.name, 'zh-CN'));
+}
 
 class StatsStore {
   constructor(filePath) {
     this.filePath = filePath;
-    this.data = { version: 1, players: {} };
+    this.data = { version: 2, players: {}, chats: {} };
     this.load();
   }
   static chinaDateKey(date = new Date()) {
@@ -14,25 +26,56 @@ class StatsStore {
     return china.toISOString().slice(0, 10);
   }
   load() {
-    try {
-      const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf8'));
-      if (parsed && parsed.players && typeof parsed.players === 'object') this.data = parsed;
-    } catch (error) {
-      if (error.code !== 'ENOENT') console.error('读取永久战绩失败，将使用空战绩：', error.message);
-    }
+    const parsed = readJsonSafe(this.filePath, '永久战绩文件');
+    if (parsed && parsed.players && typeof parsed.players === 'object') this.data = parsed;
+    if (!this.data.chats || typeof this.data.chats !== 'object') this.migrateToPerChat();
   }
   save() {
-    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    fs.writeFileSync(this.filePath, `${JSON.stringify(this.data, null, 2)}\n`, 'utf8');
+    writeJsonAtomic(this.filePath, this.data);
   }
+
+  // Version 1 kept one global record per player, so “战绩” showed players
+  // from every group. Move old totals into the group they came from when that
+  // can be worked out from the daily and undercover records.
+  migrateToPerChat() {
+    const chats = {};
+    const knownChats = new Set([
+      ...Object.values(this.data.daily || {}).flatMap((day) => Object.keys(day?.chats || {})),
+      ...Object.keys(this.data.undercover || {}),
+      ...Object.keys(this.data.undercoverAliases || {}),
+    ]);
+    const chatsOfPlayer = (openId) => new Set(Object.values(this.data.daily || {})
+      .flatMap((day) => Object.entries(day?.chats || {}))
+      .filter(([, chat]) => chat?.players?.[openId])
+      .map(([chatId]) => chatId));
+    for (const [openId, record] of Object.entries(this.data.players || {})) {
+      const playerChats = knownChats.size === 1 ? knownChats : chatsOfPlayer(openId);
+      if (playerChats.size !== 1) continue;
+      const [chatId] = playerChats;
+      if (!chats[chatId]) chats[chatId] = { players: {} };
+      chats[chatId].players[openId] = JSON.parse(JSON.stringify(record));
+    }
+    this.data.chats = chats;
+    this.data.version = 2;
+  }
+
   ensurePlayer(openId, name) {
-    const existing = this.data.players[openId] || { openId, name: name || '玩家', hands: 0, wins: 0, totalNet: 0, biggestWin: 0 };
-    if (name) existing.name = name;
-    if (!Number.isSafeInteger(existing.bailoutCount)) existing.bailoutCount = 0;
-    if (!Number.isSafeInteger(existing.bailoutTotal)) existing.bailoutTotal = 0;
-    if (!existing.bailoutPhrases || typeof existing.bailoutPhrases !== 'object') existing.bailoutPhrases = {};
+    const existing = normalizePlayerStats(this.data.players[openId], openId, name);
     this.data.players[openId] = existing;
     return existing;
+  }
+  ensureChatPlayer(chatId, openId, name) {
+    const chat = this.data.chats[chatId] || { players: {} };
+    const existing = normalizePlayerStats(chat.players[openId], openId, name);
+    chat.players[openId] = existing;
+    this.data.chats[chatId] = chat;
+    return existing;
+  }
+  // Records to update for one player: the global total and, when known, the group's.
+  recordsFor(player, chatId) {
+    const records = [this.ensurePlayer(player.openId, player.name)];
+    if (chatId) records.push(this.ensureChatPlayer(chatId, player.openId, player.name));
+    return records;
   }
   ensureDaily() {
     if (!this.data.daily || typeof this.data.daily !== 'object') this.data.daily = {};
@@ -51,13 +94,14 @@ class StatsStore {
   }
   recordHand(players, meta = {}) {
     for (const player of players) {
-      const stats = this.ensurePlayer(player.openId, player.name);
       const payout = Number(player.payout) || 0;
       const net = payout - (Number(player.contributed) || 0);
-      stats.hands += 1;
-      if (payout > 0) stats.wins += 1;
-      stats.totalNet += net;
-      stats.biggestWin = Math.max(stats.biggestWin, net);
+      for (const stats of this.recordsFor(player, meta.chatId)) {
+        stats.hands += 1;
+        if (payout > 0) stats.wins += 1;
+        stats.totalNet += net;
+        stats.biggestWin = Math.max(stats.biggestWin, net);
+      }
       if (meta.chatId) {
         const daily = this.ensureDailyPlayer(StatsStore.chinaDateKey(), meta.chatId, player);
         daily.hands += 1;
@@ -72,11 +116,14 @@ class StatsStore {
     return this.snapshot(players.map((player) => player.openId));
   }
   recordBailout(player, tier, grant, chatId = null) {
-    const stats = this.ensurePlayer(player.openId, player.name);
-    stats.bailoutCount += 1;
-    stats.bailoutTotal += Number(grant) || 0;
-    stats.lastBailoutPhrase = tier.phrase;
-    stats.bailoutPhrases[tier.phrase] = (Number(stats.bailoutPhrases[tier.phrase]) || 0) + 1;
+    const records = this.recordsFor(player, chatId);
+    for (const record of records) {
+      record.bailoutCount += 1;
+      record.bailoutTotal += Number(grant) || 0;
+      record.lastBailoutPhrase = tier.phrase;
+      record.bailoutPhrases[tier.phrase] = (Number(record.bailoutPhrases[tier.phrase]) || 0) + 1;
+    }
+    const stats = records[records.length - 1];
     if (chatId) {
       const daily = this.ensureDailyPlayer(StatsStore.chinaDateKey(), chatId, player);
       daily.bailoutCount += 1;
@@ -86,13 +133,20 @@ class StatsStore {
     return { ...stats, bailoutPhrases: { ...stats.bailoutPhrases } };
   }
   snapshot(openIds) {
-    return openIds.map((id) => this.data.players[id]).filter(Boolean).map((stats) => {
+    return sortStats(openIds.map((id) => this.data.players[id]).filter(Boolean).map((stats) => {
       const normalized = this.ensurePlayer(stats.openId, stats.name);
       return { ...normalized, bailoutPhrases: { ...normalized.bailoutPhrases } };
-    })
-      .sort((a, b) => b.wins - a.wins || b.totalNet - a.totalNet || a.name.localeCompare(b.name, 'zh-CN'));
+    }));
   }
   snapshotAll() { return this.snapshot(Object.keys(this.data.players)); }
+  // “战绩” in a group only shows hands played in that group.
+  snapshotChat(chatId) {
+    const players = Object.values(this.data.chats?.[chatId]?.players || {});
+    return sortStats(players.map((record) => {
+      const normalized = normalizePlayerStats(record, record.openId, record.name);
+      return { ...normalized, bailoutPhrases: { ...normalized.bailoutPhrases } };
+    }));
+  }
 
   ensureUndercover() {
     if (!this.data.undercover || typeof this.data.undercover !== 'object') this.data.undercover = {};

@@ -545,7 +545,7 @@ test('公共牌进入群牌桌卡片，并显示扑克牌图形和底池', () =>
 
 test('低于 1000 可按固定档位补充，每局一次且保留筹码王优势', () => {
   const statsStore = { recordHand: () => [], snapshotAll: () => [] };
-  const manager = new TableManager({ startingStack: 100, smallBlind: 5, bigBlind: 10, turnTimeoutMs: 0, statsStore });
+  const manager = new TableManager({ startingStack: 1000, smallBlind: 5, bigBlind: 10, turnTimeoutMs: 0, statsStore });
   manager.dispatch({ chatId: 'group-open', user: { openId: 'owner' }, command: { type: 'OPEN' } });
   manager.dispatch({ chatId: 'group-open', user: { openId: 'owner' }, command: { type: 'JOIN', name: '房主' } });
   manager.dispatch({ chatId: 'group-open', user: { openId: 'friend' }, command: { type: 'JOIN', name: '朋友' } });
@@ -569,8 +569,8 @@ test('低于 1000 可按固定档位补充，每局一次且保留筹码王优�
   manager.dispatch({ chatId: 'group-open', user: { openId: 'friend' }, command: { type: 'BAILOUT', level: 6 } });
   assert.equal(table.playerById('friend').stack, 900);
   assert.throws(() => manager.dispatch({ chatId: 'group-open', user: { openId: 'owner' }, command: { type: 'BAILOUT', level: 1 } }), /低于 1000/);
-  assert.deepEqual(parseCommand('我是菜猪，这把确实没打明白'), { type: 'BAILOUT', level: 1 });
-  assert.deepEqual(parseCommand('我已当众证明自己是牌技稀烂的超级蠢猪傻逼，求各位高手赏我一次复仇机会'), { type: 'BAILOUT', level: 6 });
+  assert.deepEqual(parseCommand('我是菜鸟，这把确实没打明白'), { type: 'BAILOUT', level: 1 });
+  assert.deepEqual(parseCommand('我已当众证明自己牌技稀烂，求各位高手赏我一次复仇机会'), { type: 'BAILOUT', level: 6 });
   manager.shutdown();
 });
 
@@ -633,13 +633,13 @@ test('结算卡不再另发公开提醒，点击后独享六档按钮并可自�
   const result = events.find((item) => item.type === 'result_card');
   const resultJson = JSON.stringify(createResultCard(result));
   assert.match(resultJson, /补充筹码/);
-  assert.doesNotMatch(resultJson, /超级蠢猪傻逼/);
+  assert.doesNotMatch(resultJson, /牌技稀烂/);
   const data = table.bailoutCardData('b', result.handNumber);
   assert.equal(data.options.length, 6);
   assert.equal(data.options[0].amount, 150);
   assert.equal(data.options[5].amount, 900);
   const privateJson = JSON.stringify(createExclusiveBailoutCard(data));
-  assert.match(privateJson, /超级蠢猪傻逼/);
+  assert.match(privateJson, /牌技稀烂/);
   assert.match(privateJson, /仅你可见/);
   assert.equal((privateJson.match(/BAILOUT_AUTO/g) || []).length, 6);
   assert.equal((privateJson.match(/确认选择/g) || []).length, 6);
@@ -699,7 +699,7 @@ test('离桌、解散和重启后仍保留长期筹码，重新加入恢复原�
   restored.shutdown();
 
   const saved = JSON.parse(fs.readFileSync(tablesFile, 'utf8'));
-  assert.equal(saved.version, 2);
+  assert.equal(saved.version, 3);
   assert.equal(saved.bankrolls['chat-bankroll'].b.stack, 4321);
   fs.rmSync(directory, { recursive: true });
 });

@@ -35,16 +35,46 @@ class GameManager {
     this.lastWordIndex = new Map();
   }
   get(chatId) { return this.rooms.get(chatId); }
-  parseText(chatId, text, openId = null) {
+  chatIds() { return [...this.rooms.keys()]; }
+
+  // Rooms are plain JSON, so they can be saved with the poker tables and
+  // survive a restart in the middle of a game.
+  toState() {
+    return {
+      rooms: [...this.rooms.values()].map((room) => JSON.parse(JSON.stringify(room))),
+      lastWordIndex: Object.fromEntries(this.lastWordIndex),
+    };
+  }
+  restore(state) {
+    if (!state || typeof state !== 'object') return;
+    for (const room of Array.isArray(state.rooms) ? state.rooms : []) {
+      if (!room || typeof room.chatId !== 'string' || room.game !== 'undercover' || !Array.isArray(room.players)) continue;
+      this.rooms.set(room.chatId, room);
+    }
+    for (const [chatId, index] of Object.entries(state.lastWordIndex || {})) {
+      if (Number.isSafeInteger(index)) this.lastWordIndex.set(chatId, index);
+    }
+  }
+  // allowGeneric: whether plain words shared with poker (加入/开始/查看/离开/解散)
+  // belong to this room. The table manager decides based on which game the
+  // group is currently playing.
+  parseText(chatId, text, openId = null, { allowGeneric = true } = {}) {
     const value = String(text || '').trim();
     const room = this.get(chatId);
     if (/^(谁是卧底|卧底)$/.test(value)) return { type: 'SELECT_GAME', game: 'undercover' };
     if (!room) return null;
-    if (/^(加入|加入游戏)$/.test(value)) return { type: 'GAME_ACTION', action: 'JOIN' };
-    if (/^开始(?:游戏)?$/.test(value)) return { type: 'GAME_ACTION', action: 'START' };
-    if (/^离开(?:游戏|房间)?$/.test(value)) return { type: 'GAME_ACTION', action: 'LEAVE' };
-    if (/^(查看|状态)$/.test(value)) return { type: 'GAME_ACTION', action: 'VIEW' };
-    if (/^(解散|结束游戏|结束房间)$/.test(value)) return { type: 'GAME_ACTION', action: 'END' };
+    // Words that only make sense for this game always go to the room.
+    if (/^加入游戏$/.test(value)) return { type: 'GAME_ACTION', action: 'JOIN' };
+    if (/^开始游戏$/.test(value)) return { type: 'GAME_ACTION', action: 'START' };
+    if (/^离开(?:游戏|房间)$/.test(value)) return { type: 'GAME_ACTION', action: 'LEAVE' };
+    if (/^(结束游戏|结束房间)$/.test(value)) return { type: 'GAME_ACTION', action: 'END' };
+    if (allowGeneric) {
+      if (/^加入$/.test(value)) return { type: 'GAME_ACTION', action: 'JOIN' };
+      if (/^开始$/.test(value)) return { type: 'GAME_ACTION', action: 'START' };
+      if (/^离开$/.test(value)) return { type: 'GAME_ACTION', action: 'LEAVE' };
+      if (/^(查看|状态)$/.test(value)) return { type: 'GAME_ACTION', action: 'VIEW' };
+      if (/^解散$/.test(value)) return { type: 'GAME_ACTION', action: 'END' };
+    }
     if (room.game === 'undercover') {
       const vote = value.match(/^投票\s*(.+)$/);
       if (vote) return { type: 'GAME_ACTION', action: 'VOTE_NAME', targetName: vote[1].trim() };

@@ -5,53 +5,73 @@ const {
 } = require('./card-ui');
 const { createGameCard } = require('./game-ui');
 
-function createFeishuTransport(client) {
-  async function send(receiveIdType, receiveId, text) {
-    return client.im.v1.message.create({
+// Feishu answers HTTP 400 + code 99991400 (or HTTP 429) when the app sends
+// messages too fast. Such requests are safe to retry after a short wait.
+const RATE_LIMIT_CODE = 99991400;
+
+function isRateLimited(errorOrResponse) {
+  const status = errorOrResponse?.response?.status;
+  const code = errorOrResponse?.response?.data?.code ?? errorOrResponse?.code;
+  return status === 429 || code === RATE_LIMIT_CODE;
+}
+
+function retryDelayMs(error, attempt) {
+  const reset = Number(error?.response?.headers?.['x-ogw-ratelimit-reset']);
+  if (Number.isFinite(reset) && reset > 0) return Math.min(reset * 1000, 5000);
+  return 500 * 2 ** attempt;
+}
+
+async function withRateLimitRetry(request, { retries = 3, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      const response = await request();
+      // Some API errors arrive as a normal response with a non-zero code.
+      if (isRateLimited(response)) {
+        const error = new Error(response.msg || '飞书接口限流');
+        error.code = RATE_LIMIT_CODE;
+        throw error;
+      }
+      return response;
+    } catch (error) {
+      if (!isRateLimited(error) || attempt >= retries) throw error;
+      await sleep(retryDelayMs(error, attempt));
+    }
+  }
+}
+
+const CARD_BUILDERS = Object.freeze({
+  home_card: createHomeCard,
+  game_card: createGameCard,
+  lobby_card: createLobbyCard,
+  table_card: createTableCard,
+  start_card: createStartCard,
+  result_card: createResultCard,
+  chips_card: createChipsCard,
+  stats_card: createStatsCard,
+  daily_title_card: createDailyTitleCard,
+  bailout_card: createBailoutCard,
+  bailout_notice_card: createBailoutNoticeCard,
+  rules_card: createRulesCard,
+});
+
+function createFeishuTransport(client, retryOptions = {}) {
+  function createMessage(receiveIdType, receiveId, msgType, content) {
+    return withRateLimitRetry(() => client.im.v1.message.create({
       params: { receive_id_type: receiveIdType },
-      data: {
-        receive_id: receiveId,
-        msg_type: 'text',
-        content: JSON.stringify({ text }),
-      },
-    });
+      data: { receive_id: receiveId, msg_type: msgType, content: JSON.stringify(content) },
+    }), retryOptions);
+  }
+
+  async function send(receiveIdType, receiveId, text) {
+    return createMessage(receiveIdType, receiveId, 'text', { text });
   }
 
   async function createCard(receiveIdType, receiveId, card) {
-    return client.im.v1.message.create({
-      params: { receive_id_type: receiveIdType },
-      data: {
-        receive_id: receiveId,
-        msg_type: 'interactive',
-        content: JSON.stringify(card),
-      },
-    });
+    return createMessage(receiveIdType, receiveId, 'interactive', card);
   }
 
   async function sendTableCard(event) {
-  const builders = {
-    home_card: createHomeCard,
-    game_notice_card: (event) => ({
-      config: { wide_screen_mode: true, enable_forward: false },
-      header: { template: 'wathet', title: { tag: 'plain_text', content: `🎮 ${event.title}` } },
-      elements: [
-        { tag: 'div', text: { tag: 'lark_md', content: `**${event.title}**\n这个游戏入口已经加入大厅，规则和房间逻辑正在单独开发。` } },
-        { tag: 'note', elements: [{ tag: 'plain_text', content: '当前德州扑克可以直接开始；@机器人可重新打开游戏大厅。' }] },
-      ],
-    }),
-    game_card: createGameCard,
-      lobby_card: createLobbyCard,
-      table_card: createTableCard,
-      start_card: createStartCard,
-      result_card: createResultCard,
-      chips_card: createChipsCard,
-      stats_card: createStatsCard,
-      daily_title_card: createDailyTitleCard,
-      bailout_card: createBailoutCard,
-      bailout_notice_card: createBailoutNoticeCard,
-      rules_card: createRulesCard,
-    };
-    const card = builders[event.type](event);
+    const card = CARD_BUILDERS[event.type](event);
     // Every turn must appear at the bottom of the chat. Patching an earlier
     // street card makes the new controls look as if they were never sent.
     await createCard('chat_id', event.chatId, card);
@@ -72,7 +92,7 @@ function createFeishuTransport(client) {
               await send('open_id', event.openId, event.fallbackText);
             }
           }
-          else if (['table_card', 'lobby_card', 'home_card', 'game_notice_card', 'game_card', 'start_card', 'result_card', 'chips_card', 'stats_card', 'daily_title_card', 'bailout_card', 'bailout_notice_card', 'rules_card'].includes(event.type)) {
+          else if (Object.hasOwn(CARD_BUILDERS, event.type)) {
             try { await sendTableCard(event); }
             catch (error) {
               console.error('发送牌桌卡片失败，已降级为文字消息：', error);
@@ -88,4 +108,4 @@ function createFeishuTransport(client) {
   };
 }
 
-module.exports = { createFeishuTransport };
+module.exports = { createFeishuTransport, withRateLimitRetry, isRateLimited };
